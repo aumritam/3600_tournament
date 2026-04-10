@@ -32,7 +32,7 @@ W_CARPET_PRIMED   = 0.4   # extra credit per already-primed cell
 W_OPP_THREAT      = 0.5   # penalty per point of opponent carpet value
 W_RAT_BASE        = 0.5   # rat EV weight when neutral
 URGENCY_SCALE     = 2.0   # how aggressively urgency shifts weights
-TOP_N_LINES       = 3     # how many top lines to consider
+TOP_N_LINES       = 1     # how many top lines to consider
 MIN_TURNS_FOR_LINE = 2    # ignore incomplete lines if fewer turns remain
 
 # ---------------------------------------------------------------------------

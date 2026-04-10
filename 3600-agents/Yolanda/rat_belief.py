@@ -134,7 +134,7 @@ class RatBelief:
         # Cache per-cell floor-type emission vector (64 x 3).
         # Updated lazily whenever board state changes (primed/carpet cells).
         self._emission_cache = None
-        self._cache_board_state = None  # (primed_mask, carpet_mask, blocked_mask)
+        self._cache_board_state = (-1, -1, -1)  # (primed_mask, carpet_mask, blocked_mask)
 
     # ------------------------------------------------------------------
     # Public API
@@ -200,6 +200,7 @@ class RatBelief:
         """Reset to prior after any rat capture (yours or opponent's)."""
         self.belief = compute_prior(self.T)
         self._emission_cache = None   # board state may have changed
+        self._cache_board_state = (-1, -1, -1)
 
     # ------------------------------------------------------------------
     # Query interface
