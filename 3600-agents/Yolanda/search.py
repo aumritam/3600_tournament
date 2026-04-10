@@ -47,18 +47,14 @@ MAX_DEPTH = 6
 # ---------------------------------------------------------------------------
  
 def order_moves(moves: list) -> list:
-    """
-    Order moves to maximize alpha-beta cutoffs.
-    Carpet rolls first (highest immediate value), then primes, then plains.
-    Within carpet rolls, longer rolls first.
-    """
-    carpets = sorted(
-        [m for m in moves if m.move_type == MoveType.CARPET],
+    good_carpets = sorted(
+        [m for m in moves if m.move_type == MoveType.CARPET and m.roll_length >= 4],
         key=lambda m: -m.roll_length
     )
+    bad_carpets = [m for m in moves if m.move_type == MoveType.CARPET and m.roll_length < 3]
     primes = [m for m in moves if m.move_type == MoveType.PRIME]
     plains = [m for m in moves if m.move_type == MoveType.PLAIN]
-    return carpets + primes + plains
+    return good_carpets + primes + plains + bad_carpets
  
  
 # ---------------------------------------------------------------------------

@@ -113,6 +113,7 @@ def _carpet_potential(board, my_pos, opp_pos, turns_left, urgency) -> float:
         my_dist  = _dist_to_line(my_pos,  line)
         if opp_dist < my_dist:
             poach_risk = (my_dist - opp_dist) / max(1, line.length)
+            poach_risk *= (1.0 - completion_ratio * 0.7)
             val *= max(0.0, 1.0 - poach_risk)
 
         total += val * W_CARPET_BASE

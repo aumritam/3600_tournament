@@ -105,7 +105,7 @@ class Line:
     n_blocked   : how many cells are blocked/carpeted (makes line invalid)
     carpet_pts  : points earned when rolled  (CARPET_POINTS_TABLE[len])
     prime_cost  : points spent priming remaining space cells (1 per cell)
-    net_value   : carpet_pts - prime_cost  (ignores already-primed cells)
+    net_value   : carpet_pts + prime_cost  (priming gains points, doesn't cost them)
     """
 
     def __init__(self, cells: list, direction: Direction, board):
@@ -127,7 +127,7 @@ class Line:
 
         self.carpet_pts = CARPET_POINTS_TABLE[self.length]
         self.prime_cost = n_space       # 1pt per prime step still needed
-        self.net_value  = self.carpet_pts - self.prime_cost
+        self.net_value  = self.carpet_pts + self.prime_cost
 
     def is_ready(self) -> bool:
         """All cells are primed — can be rolled immediately."""
@@ -301,11 +301,17 @@ class CarpetPlanner:
         score = float(line.net_value)
 
         # Length bonus: 7-line is much better than two 3-lines
-        score += line.length ** 1.5
-
+        score += line.length ** 2.0
+        
         # Already invested primes are a sunk-cost bonus
         # (we've already paid for those squares)
-        score += line.n_primed * 1.5
+        completion_ratio = line.n_primed / line.length
+        if completion_ratio >= 0.5:
+            score += line.n_primed * 5.0
+        elif completion_ratio >= 0.25:
+            score += line.n_primed * 3.0
+        else:
+            score += line.n_primed * 1.5
 
         # Proximity discount: prefer reachable lines
         closest_cell = min(line.cells, key=lambda c: manhattan(worker_pos, c))
@@ -314,9 +320,12 @@ class CarpetPlanner:
 
         # Penalise if opponent is closer to this line than we are
         opp_pos = board.opponent_worker.get_location()
-        opp_dist = min(manhattan(opp_pos, c) for c in line.cells)
-        if opp_dist < dist:
-            score -= (dist - opp_dist) * 1.2
+        opp_dist = _dist_to_line(opp_pos, line)
+        my_dist  = _dist_to_line(worker_pos, line)
+        if opp_dist < my_dist:
+            poach_risk = (my_dist - opp_dist) / max(1, line.length)
+            poach_risk *= (1.0 - completion_ratio * 0.7)
+            score -= poach_risk * 3.0
 
         return score
 
@@ -391,3 +400,6 @@ class CarpetPlanner:
                 best_dir = move.direction
 
         return best_dir
+
+def _dist_to_line(pos: tuple, line: Line) -> int:
+    return min(manhattan(pos, c) for c in line.cells)
