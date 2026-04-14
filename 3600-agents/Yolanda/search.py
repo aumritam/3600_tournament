@@ -132,6 +132,10 @@ def prioritize_moves(b: Board, moves: list, committed_direction=None) -> list:
         # tiny bonus for central squares so it does not drift to edges
         score -= 0.1 * (abs(new_pos[0] - 3.5) + abs(new_pos[1] - 3.5))
 
+        # heavy penalty for stepping onto our own carpet — wasted movement
+        if b.get_cell(new_pos) == Cell.CARPET:
+            score -= 5.0
+
         return score
 
     primes.sort(key=prime_score, reverse=True)

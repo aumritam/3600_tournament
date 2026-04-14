@@ -11,6 +11,56 @@ What it takes from your friend's version:
 - stricter rat-search discipline
 - less pointless late-game plains
 """
+#-----------------------------------------------------------------------------
+
+from collections.abc import Callable
+from typing import Optional, Tuple
+
+import numpy as np
+
+from game import board
+from game.enums import BOARD_SIZE, MoveType, Direction, Cell, CARPET_POINTS_TABLE
+from game.move import Move
+
+from .rat_belief import RatBelief
+
+from .rat_belief import RatBelief
+from .search import iterative_deepening, prioritize_moves, best_greedy_carpet, trail_length_behind, runway_length
+
+TIME_RESERVE = 8.0
+MAX_DEPTH = 3
+
+class PlayerAgent:
+    def __init__(self, board_state, transition_matrix=None, time_left: Callable = None):
+        if transition_matrix is not None:
+            T = np.array(transition_matrix, dtype=np.float64)
+        else:
+            n = BOARD_SIZE * BOARD_SIZE
+            T = np.ones((n, n), dtype=np.float64) / n
+
+        self.rat_belief = RatBelief(T)
+        self.turns_played = 0
+        self.target_line = None  
+
+    def play(self, board_state: board.Board, sensor_data: Tuple, time_left: Callable) -> Move:
+        self.turns_played += 1
+        noise, est_distance = sensor_data
+
+        my_loc = board_state.player_worker.get_location()
+        opp_loc = board_state.opponent_worker.get_location()
+        turns_left = board_state.player_worker.turns_left
+
+        opp_guess, opp_found = board_state.opponent_search
+        self.rat_belief.update(
+        board_state,
+        noise,
+        est_distance,
+        my_loc,
+        opp_guess=opp_guess,
+        opp_found=opp_found,
+        )
+
+#--------------------------------------------------------------------------------
 
 import random
 from collections.abc import Callable
@@ -32,7 +82,7 @@ from .search import (
 )
 
 TIME_RESERVE = 8.0
-MAX_DEPTH = 4
+MAX_DEPTH = 3
 
 EARLY_CUTOFF = 28
 MID_CUTOFF = 10
@@ -41,7 +91,7 @@ RAT_THRESHOLD = 0.75
 MAX_SAME_CELL = 1
 MIN_RUNWAY = 1
 CUTOFF_BONUS = 4
-FORCE_CARPET_LEN = 2
+FORCE_CARPET_LEN = 3
 FORCE_CARPET_RUNWAY = 1
 
 
@@ -103,14 +153,10 @@ class PlayerAgent:
         else:
             self.search_same_count = 0
 
-        dist_me = abs(my_loc[0] - best_loc[0]) + abs(my_loc[1] - best_loc[1])
-        dist_opp = abs(opp_loc[0] - best_loc[0]) + abs(opp_loc[1] - best_loc[1])
-
         can_search = (
             best_prob >= RAT_THRESHOLD
             and self.search_same_count < MAX_SAME_CELL
             and not (leading and turns_left <= MID_CUTOFF)
-            and dist_me <= dist_opp
         )
         if can_search:
             self.last_search_loc = best_loc
@@ -127,7 +173,7 @@ class PlayerAgent:
         elif turns_left > MID_CUTOFF:
             greedy = best_greedy_carpet(board_state, min_length=4)
         else:
-            greedy = best_greedy_carpet(board_state, min_length=2)
+            greedy = best_greedy_carpet(board_state, min_length=3)
 
         if greedy is not None:
             self._update_direction_after_carpet(greedy)
