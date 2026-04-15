@@ -78,7 +78,12 @@ class RatBelief:
 
         self.observe(board, noise, est_distance, worker_pos)
 
-        #Still Working On
+        if opp_guess is not None:
+            if opp_found:
+                self.reset()
+            else:
+                self.belief[pos_to_idx(opp_guess)] = 0.0
+                self._safe_normalize()
 
     def predict(self):
         self.belief = self.Tt @ self.belief
@@ -124,8 +129,31 @@ class RatBelief:
             lk[idx] = p
         return lk
     
+    def reset(self):
+        self.belief = compute_prior(self.T)
+        self._emission_cache = None
+        self._cache_board_state = (-1, -1, -1)
+
+    def note_my_miss(self, pos: tuple):
+        self.belief[pos_to_idx(pos)] = 0.0
+        self._safe_normalize()
+
+    def belief_at(self, pos: tuple) -> float:
+        return float(self.belief[pos_to_idx(pos)])
+    
+    def best_search_target(self):
+        best_idx = int(np.argmax(self.belief))
+        best_pos = idx_to_pos(best_idx)
+        return best_pos, self.search_ev(best_pos)
+    
+    def search_ev(self, pos: tuple) -> float:
+        p = float(self.belief[pos_to_idx(pos)])
+        return p * 4.0 - (1.0 - p) * 2.0
+    
 
 #-----------------------------------------------------------------------------
+
+"""
 def pos_to_idx(pos: tuple) -> int:
     return pos[1] * BOARD_SIZE + pos[0]
 
@@ -277,3 +305,5 @@ class RatBelief:
             self.belief /= total
         else:
             self.belief = np.ones(N, dtype=np.float64) / N
+
+"""

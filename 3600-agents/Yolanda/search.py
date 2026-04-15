@@ -7,7 +7,87 @@ Key changes from your previous version:
 - rat belief is copied/predicted down the tree
 - strong greedy helpers used by the agent before tree search
 """
+#---------------------------------------------------------------------------------
+from game.board import Board
+from game.enums import MoveType, Direction, Cell, BOARD_SIZE, CARPET_POINTS_TABLE
+from game.move import Move
 
+TIME_RESERVE = 8.0
+INF = 1e9
+
+OPPOSITE = {
+    Direction.UP: Direction.DOWN,
+    Direction.DOWN: Direction.UP,
+    Direction.LEFT: Direction.RIGHT,
+    Direction.RIGHT: Direction.LEFT,
+}
+
+def runway_carpet_length(b: Board, direction: Direction) -> int:
+    opp_loc = b.opponent_worker.get_location()
+    cur = b.player_worker.get_location()
+    length = 0
+    while length < 7:
+        cur = _step(cur, direction)
+        if not _in_bounds(cur):
+            break
+        if b.is_cell_blocked(cur):
+            break
+        if b.get_cell(cur) == Cell.CARPET:
+            break
+        if cur == opp_loc:
+            break
+        length += 1
+    return length
+
+def runway_prime_points(b: Board, direction: Direction) -> int:
+    opp_loc = b.opponent_worker.get_location()
+    cur = b.player_worker.get_location()
+    points = 0
+    steps = 0
+    while steps < 7:
+        cur = _step(cur, direction)
+        if not _in_bounds(cur):
+            break
+        if b.is_cell_blocked(cur):
+            break
+        if b.get_cell(cur) == Cell.CARPET:
+            break
+        if cur == opp_loc:
+            break
+        if b.get_cell(cur) == Cell.SPACE:
+            points += 1
+        steps += 1
+    return points
+
+def trail_length_behind(b: Board, direction: Direction) -> int:
+    cur = b.player_worker.get_location()
+    opp_dir = OPPOSITE[direction]
+    length = 0
+    while length < 7:
+        cur = _step(cur, opp_dir)
+        if not _in_bounds(cur):
+            break
+        if b.get_cell(cur) != Cell.PRIMED:
+            break
+        length += 1
+    return length
+
+def _step(loc, direction: Direction):
+    x, y = loc
+    if direction == Direction.UP:
+        return (x, y - 1)
+    if direction == Direction.DOWN:
+        return (x, y + 1)
+    if direction == Direction.LEFT:
+        return (x - 1, y)
+    return (x + 1, y)
+
+def _in_bounds(loc) -> bool:
+    return 0 <= loc[0] < BOARD_SIZE and 0 <= loc[1] < BOARD_SIZE
+
+
+#--------------------------------------------------------------------------------
+"""
 from collections.abc import Callable
 from game.board import Board
 from game.enums import MoveType, Direction, Cell, BOARD_SIZE, CARPET_POINTS_TABLE
@@ -203,3 +283,4 @@ def _step(loc, direction: Direction):
 
 def _in_bounds(loc) -> bool:
     return 0 <= loc[0] < BOARD_SIZE and 0 <= loc[1] < BOARD_SIZE
+"""

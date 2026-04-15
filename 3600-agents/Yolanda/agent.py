@@ -24,8 +24,12 @@ from game.move import Move
 
 from .rat_belief import RatBelief
 
-from .rat_belief import RatBelief
-from .search import iterative_deepening, prioritize_moves, best_greedy_carpet, trail_length_behind, runway_length
+from .search import (
+    trail_length_behind,
+    runway_carpet_length,
+    runway_prime_points,
+    _step
+)
 
 TIME_RESERVE = 8.0
 MAX_DEPTH = 3
@@ -41,6 +45,7 @@ class PlayerAgent:
         self.rat_belief = RatBelief(T)
         self.turns_played = 0
         self.target_line = None  
+        self.last_pos = None
 
     def play(self, board_state: board.Board, sensor_data: Tuple, time_left: Callable) -> Move:
         self.turns_played += 1
@@ -60,8 +65,106 @@ class PlayerAgent:
         opp_found=opp_found,
         )
 
-#--------------------------------------------------------------------------------
+        my_last_loc, my_last_hit = board_state.player_search
+        if my_last_loc is not None and not my_last_hit:
+            self.rat_belief.note_my_miss(my_last_loc)
 
+        #Currently Ranking All Possible Moves And Picking The Top 1
+        ranked = self._rank_moves(board_state, my_loc, opp_loc, turns_left)
+        print(ranked)
+
+        if ranked:
+            self.last_pos = my_loc
+            return ranked[0][1]  #Picking the top 1
+        
+        valid = board_state.get_valid_moves(enemy=False, exclude_search=True)
+        return valid[0] if valid else Move.search((0, 0))
+    
+    def _rank_moves(self, board_state, my_loc, opp_loc, turns_left):
+        # TODO: Once all moves are scored on standardized EV scale,
+        # run tree search on top N candidates to re-rank based on
+        # lookahead. Tree search will handle multi-move sequences
+        # like plain stepping over carpet to reach new priming areas.
+
+        my_pts = board_state.player_worker.get_points()
+        opp_pts = board_state.opponent_worker.get_points()
+
+        valid = board_state.get_valid_moves(enemy=False, exclude_search=True) #excludes search moves (check if valid)
+        print(f"Valid moves: {valid}")
+
+        best_carpets = {}
+        for move in valid:
+            if move.move_type == MoveType.CARPET:
+                if move.direction not in best_carpets or move.roll_length > best_carpets[move.direction].roll_length:
+                    best_carpets[move.direction] = move
+    
+        non_carpets = [m for m in valid if m.move_type != MoveType.CARPET]
+        valid = non_carpets + list(best_carpets.values())
+
+        scored = []
+        for move in valid:
+            score = self._score_move(board_state, move, my_loc, opp_loc, turns_left, my_pts, opp_pts)
+            scored.append((score, move))
+
+        best_loc, _ = self.rat_belief.best_search_target()
+        search_score = self._score_search(board_state, best_loc, my_loc, opp_loc, turns_left, my_pts, opp_pts)
+        scored.append((search_score, Move.search(best_loc)))
+
+        scored.sort(key=lambda x: x[0], reverse=True)
+        return scored
+
+
+    def _score_move(self, board_state, move, my_loc, opp_loc, turns_left, my_pts, opp_pts):
+        if move.move_type == MoveType.CARPET:
+            return self._score_carpet(board_state, move, my_loc, opp_loc, turns_left, my_pts, opp_pts)
+        elif move.move_type == MoveType.PRIME:
+            return self._score_prime(board_state, move, my_loc, opp_loc, turns_left, my_pts, opp_pts)
+        elif move.move_type == MoveType.PLAIN:
+            return self._score_plain(board_state, move, my_loc, opp_loc, turns_left, my_pts, opp_pts)
+        return -999.0
+    
+    # Basic straight table number
+    def _score_carpet(self, board_state, move, my_loc, opp_loc, turns_left, my_pts, opp_pts):
+        return float(CARPET_POINTS_TABLE.get(move.roll_length, 0))
+    
+    def _score_prime(self, board_state, move, my_loc, opp_loc, turns_left, my_pts, opp_pts):
+        runway = runway_carpet_length(board_state, move.direction)
+        runway_pts = runway_prime_points(board_state, move.direction)
+        trail = trail_length_behind(board_state, move.direction)
+        
+        potential_length = min(trail + runway, turns_left)
+        carpet_value = float(CARPET_POINTS_TABLE.get(potential_length, 0))
+        trail_bonus = trail * 3.0
+        score = (carpet_value + float(runway_pts)) * 0.8 + trail_bonus
+        
+        return score
+    
+    #Def might need to tweek later
+    def _score_plain(self, board_state, move, my_loc, opp_loc, turns_left, my_pts, opp_pts):
+        new_pos = _step(my_loc, move.direction)
+        
+        # If standing on carpet, priority is to escape to open space for priming
+        if board_state.get_cell(my_loc) == Cell.CARPET:
+            if board_state.get_cell(new_pos) == Cell.SPACE:
+                return 5.0  # escape carpet to resume priming
+            if board_state.get_cell(new_pos) == Cell.CARPET:
+                return -2.0  # stepping onto more carpet is bad (def might have to change)
+        
+        # Penalize stepping onto carpet
+        if board_state.get_cell(new_pos) == Cell.CARPET:
+            if self.last_pos is not None and new_pos == self.last_pos:
+                return -8.0  # stepping back onto carpet we just came from
+            return -1.0  # crossing carpet to get somewhere useful
+        
+        return -0.5
+    
+    def _score_search(self, board_state, best_loc, my_loc, opp_loc, turns_left, my_pts, opp_pts):
+        best_prob = self.rat_belief.belief_at(best_loc)
+        ev = 6.0 * best_prob - 2.0
+        return ev
+
+#--------------------------------------------------------------------------------
+"""
 import random
 from collections.abc import Callable
 from typing import Optional, Tuple
@@ -435,3 +538,5 @@ def _perpendiculars(direction: Direction):
 
 def _in_bounds(loc) -> bool:
     return 0 <= loc[0] < BOARD_SIZE and 0 <= loc[1] < BOARD_SIZE
+
+"""
