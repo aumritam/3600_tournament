@@ -1,9 +1,18 @@
+#----------------------------------------------------------------------------------------
+
+
+
+
+
+
+
+#----------------------------------------------------------------------------------------
 """
 Practical territorial heuristic.
 
 This is intentionally closer to your friend's "score-now / steal-now" style
 than the more abstract line-planning heuristic.
-"""
+
 
 from typing import Tuple
 
@@ -192,3 +201,4 @@ def _perpendiculars(direction: Direction):
 
 def _in_bounds(loc: Tuple[int, int]) -> bool:
     return 0 <= loc[0] < BOARD_SIZE and 0 <= loc[1] < BOARD_SIZE
+"""

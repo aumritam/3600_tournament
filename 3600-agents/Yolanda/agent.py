@@ -143,25 +143,58 @@ class PlayerAgent:
     def _score_plain(self, board_state, move, my_loc, opp_loc, turns_left, my_pts, opp_pts):
         new_pos = _step(my_loc, move.direction)
         
+        # Check if we're genuinely trapped with no open adjacent cells
+        valid = board_state.get_valid_moves(enemy=False, exclude_search=True)
+        prime_moves = [m for m in valid if m.move_type == MoveType.PRIME]
+        plain_to_space = [m for m in valid if m.move_type == MoveType.PLAIN 
+                        and board_state.get_cell(_step(my_loc, m.direction)) == Cell.SPACE]
+        
+        genuinely_trapped = not prime_moves and not plain_to_space
+        
         # If standing on carpet, priority is to escape to open space for priming
         if board_state.get_cell(my_loc) == Cell.CARPET:
             if board_state.get_cell(new_pos) == Cell.SPACE:
                 return 5.0  # escape carpet to resume priming
             if board_state.get_cell(new_pos) == Cell.CARPET:
-                return -2.0  # stepping onto more carpet is bad (def might have to change)
+                if genuinely_trapped:
+                    nearest_open = self._nearest_open_cell(board_state, new_pos)
+                    if nearest_open is not None:
+                        dist = abs(new_pos[0] - nearest_open[0]) + abs(new_pos[1] - nearest_open[1])
+                        return 3.0 + (1.0 / max(dist, 1))
+                    return 3.0
+                return -2.0
         
         # Penalize stepping onto carpet
         if board_state.get_cell(new_pos) == Cell.CARPET:
+            if genuinely_trapped:
+                nearest_open = self._nearest_open_cell(board_state, new_pos)
+                if nearest_open is not None:
+                    dist = abs(new_pos[0] - nearest_open[0]) + abs(new_pos[1] - nearest_open[1])
+                    return 3.0 + (1.0 / max(dist, 1))
+                return 3.0
             if self.last_pos is not None and new_pos == self.last_pos:
-                return -8.0  # stepping back onto carpet we just came from
-            return -1.0  # crossing carpet to get somewhere useful
+                return -8.0
+            return -1.0
         
+        # Base penalty for plain move
         return -0.5
     
     def _score_search(self, board_state, best_loc, my_loc, opp_loc, turns_left, my_pts, opp_pts):
         best_prob = self.rat_belief.belief_at(best_loc)
         ev = 6.0 * best_prob - 2.0
         return ev
+    
+    def _nearest_open_cell(self, board_state, pos):
+        best = None
+        best_dist = 999
+        for y in range(BOARD_SIZE):
+            for x in range(BOARD_SIZE):
+                if board_state.get_cell((x, y)) == Cell.SPACE:
+                    d = abs(pos[0] - x) + abs(pos[1] - y)
+                    if d < best_dist:
+                        best_dist = d
+                        best = (x, y)
+        return best
 
 #--------------------------------------------------------------------------------
 """
