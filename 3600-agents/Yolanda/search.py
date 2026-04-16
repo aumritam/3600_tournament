@@ -22,7 +22,7 @@ OPPOSITE = {
     Direction.RIGHT: Direction.LEFT,
 }
 
-def runway_carpet_length(b: Board, direction: Direction) -> int:
+def runway_carpet_length(b: Board, direction: Direction, loc=None) -> int:
     opp_loc = b.opponent_worker.get_location()
     cur = b.player_worker.get_location()
     length = 0
@@ -39,7 +39,7 @@ def runway_carpet_length(b: Board, direction: Direction) -> int:
         length += 1
     return length
 
-def runway_prime_points(b: Board, direction: Direction) -> int:
+def runway_prime_points(b: Board, direction: Direction, loc=None) -> int:
     opp_loc = b.opponent_worker.get_location()
     cur = b.player_worker.get_location()
     points = 0
@@ -59,7 +59,7 @@ def runway_prime_points(b: Board, direction: Direction) -> int:
         steps += 1
     return points
 
-def trail_length_behind(b: Board, direction: Direction) -> int:
+def trail_length_behind(b: Board, direction: Direction, loc=None) -> int:
     cur = b.player_worker.get_location()
     opp_dir = OPPOSITE[direction]
     length = 0

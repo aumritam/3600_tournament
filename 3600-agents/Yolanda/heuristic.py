@@ -1,10 +1,197 @@
 #----------------------------------------------------------------------------------------
 
+"""
+heuristic.py — board position evaluator for tree search.
 
+Scores a position based on opportunity available right now:
+- Points already scored
+- Chain we can roll immediately (discounted by opponent threat)
+- Runway extending our best chain
+- Open space for future building
+- Minus opponent's immediate scoring opportunity
+"""
 
+from game.board import Board
+from game.enums import Direction, Cell, BOARD_SIZE, CARPET_POINTS_TABLE
+from .search import runway_carpet_length, runway_prime_points, _step, _in_bounds
 
+ALL_DIRS = [Direction.UP, Direction.DOWN, Direction.LEFT, Direction.RIGHT]
 
+OPPOSITE = {
+    Direction.UP:    Direction.DOWN,
+    Direction.DOWN:  Direction.UP,
+    Direction.LEFT:  Direction.RIGHT,
+    Direction.RIGHT: Direction.LEFT,
+}
 
+def _best_rollable_chain(board, loc):
+    """
+    From loc, look in all 4 directions and count consecutive primed cells.
+    Returns (best_length, best_direction, chain_end_pos)
+    chain_end_pos is the far end of the best chain.
+    """
+    best_length = 0
+    best_direction = None
+    best_end = None
+
+    for d in ALL_DIRS:
+        cur = loc
+        length = 0
+        last = None
+        while length < 7:
+            nxt = _step(cur, d)
+            if not _in_bounds(nxt):
+                break
+            if board.get_cell(nxt) != Cell.PRIMED:
+                break
+            cur = nxt
+            last = nxt
+            length += 1
+
+        if length > best_length:
+            best_length = length
+            best_direction = d
+            best_end = last
+
+    return best_length, best_direction, best_end
+
+def _raw_carpet_value(length):
+    """
+    Points earned if we roll a carpet of this length right now.
+    """
+    return float(CARPET_POINTS_TABLE.get(length, 0))
+
+def _threat_discount(board, loc, best_direction, best_end, best_length):
+    threat1 = _end_approach_threat(board, loc, best_direction, best_end)
+    threat2 = _perpendicular_threat(board, loc, best_direction, best_length)
+    
+    # Take the worst threat (lowest discount)
+    return min(threat1, threat2)
+
+def _end_approach_threat(board, loc, best_direction, best_end):
+    opp_loc = board.opponent_worker.get_location()
+    
+    roll_pos = _step(best_end, best_direction)
+    dist = abs(opp_loc[0] - roll_pos[0]) + abs(opp_loc[1] - roll_pos[1])
+    
+    if dist == 0:   return 0.1   # opponent already at roll position
+    elif dist == 1: return 0.5   # one step away, real threat
+    elif dist == 2: return 0.8   # two steps, mild concern
+    else:           return 1.0   # far away, no discount
+
+def _perpendicular_threat(board, loc, best_direction, best_length):
+    opp_loc = board.opponent_worker.get_location()
+    perp_dirs = [Direction.LEFT, Direction.RIGHT] if best_direction in (Direction.UP, Direction.DOWN) else [Direction.UP, Direction.DOWN]
+
+    # Check if opponent is aligned perpendicularly to our chain
+    for pd in perp_dirs:
+        # Walk from opponent in this perpendicular direction
+        # and see if the primed line hits any cell in our chain
+        cur = opp_loc
+        length = 0
+        while length < 7:
+            cur = _step(cur, pd)
+            if not _in_bounds(cur): break
+            if board.get_cell(cur) != Cell.PRIMED: break
+            # Check if this primed cell is in our chain
+            # Our chain runs from loc in best_direction for best_length cells
+            chain_cur = loc
+            for _ in range(best_length):
+                chain_cur = _step(chain_cur, best_direction)
+                if chain_cur == cur:
+                    # Intersection found — opponent has perp chain hitting ours
+                    dist = length  # how many primes between opp and intersection
+                    if dist == 0:   return 0.1
+                    elif dist == 1: return 0.5
+                    elif dist == 2: return 0.8
+                    else:           return 1.0
+            length += 1
+
+    return 1.0  # no perpendicular threat found
+
+def _corridor_openness(board, loc, direction):
+    x, y = loc
+    open_count = 0
+    total = 0
+    
+    if direction == Direction.DOWN:
+        for row in range(y + 1, BOARD_SIZE):
+            for col in range(BOARD_SIZE):
+                pos = (col, row)
+                if board._blocked_mask & (1 << (row * BOARD_SIZE + col)): continue
+                total += 1
+                if board.get_cell(pos) == Cell.SPACE: open_count += 1
+    elif direction == Direction.UP:
+        for row in range(0, y):
+            for col in range(BOARD_SIZE):
+                pos = (col, row)
+                if board._blocked_mask & (1 << (row * BOARD_SIZE + col)): continue
+                total += 1
+                if board.get_cell(pos) == Cell.SPACE: open_count += 1
+    elif direction == Direction.RIGHT:
+        for col in range(x + 1, BOARD_SIZE):
+            for row in range(BOARD_SIZE):
+                pos = (col, row)
+                if board._blocked_mask & (1 << (row * BOARD_SIZE + col)): continue
+                total += 1
+                if board.get_cell(pos) == Cell.SPACE: open_count += 1
+    else:  # LEFT
+        for col in range(0, x):
+            for row in range(BOARD_SIZE):
+                pos = (col, row)
+                if board._blocked_mask & (1 << (row * BOARD_SIZE + col)): continue
+                total += 1
+                if board.get_cell(pos) == Cell.SPACE: open_count += 1
+    
+    if total == 0: return 0.0
+    return open_count / total
+
+def heuristic(board, rat_belief=None) -> float:
+    my_pts  = board.player_worker.get_points()
+    opp_pts = board.opponent_worker.get_points()
+    my_loc  = board.player_worker.get_location()
+    opp_loc = board.opponent_worker.get_location()
+    turns_left = board.player_worker.turns_left
+
+    score = float(my_pts - opp_pts)
+
+    best_length, best_dir, best_end = _best_rollable_chain(board, my_loc)
+    raw_value = _raw_carpet_value(best_length)
+
+    if best_length > 0:
+        discount = _threat_discount(board, my_loc, best_dir, best_end, best_length)
+        score += raw_value * discount
+
+    best_runway = 0
+    best_runway_dir = None
+    for d in ALL_DIRS:
+        runway = runway_prime_points(board, d)
+        if runway > best_runway:
+            best_runway = runway
+            best_runway_dir = d
+    
+    if best_runway_dir == best_dir:
+        score += best_runway * 0.6  # best runway continues our chain
+    else:
+        score += best_runway * 0.4  # best runway is in a different direction
+
+    # Corridor openness — how much open space exists in our building direction
+    if best_dir is not None:
+        openness = _corridor_openness(board, my_loc, best_dir)
+        score += openness * 3.0
+    else:
+        # No committed direction yet — find the most open direction
+        best_openness = 0.0
+        for d in ALL_DIRS:
+            o = _corridor_openness(board, my_loc, d)
+            best_openness = max(best_openness, o)
+        score += best_openness * 6.0
+
+    opp_length, _, _ = _best_rollable_chain(board, opp_loc)
+    opp_raw = _raw_carpet_value(opp_length)
+    score -= opp_raw
+    
+    return score
 
 #----------------------------------------------------------------------------------------
 """

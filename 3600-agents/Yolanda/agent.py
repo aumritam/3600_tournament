@@ -31,6 +31,8 @@ from .search import (
     _step
 )
 
+from .heuristic import heuristic_debug
+
 TIME_RESERVE = 8.0
 MAX_DEPTH = 3
 
@@ -72,6 +74,9 @@ class PlayerAgent:
         #Currently Ranking All Possible Moves And Picking The Top 1
         ranked = self._rank_moves(board_state, my_loc, opp_loc, turns_left)
         print(ranked)
+
+        print(f"\n--- Turn {self.turns_played} Heuristic ---", flush=True)
+        heuristic_debug(board_state, self.rat_belief)
 
         if ranked:
             self.last_pos = my_loc

@@ -150,6 +150,15 @@ class RatBelief:
         p = float(self.belief[pos_to_idx(pos)])
         return p * 4.0 - (1.0 - p) * 2.0
     
+    def copy(self):
+        new_rb = RatBelief.__new__(RatBelief)
+        new_rb.T = self.T
+        new_rb.Tt = self.Tt
+        new_rb.belief = self.belief.copy()
+        new_rb._emission_cache = None if self._emission_cache is None else self._emission_cache.copy()
+        new_rb._cache_board_state = self._cache_board_state
+        return new_rb
+    
 
 #-----------------------------------------------------------------------------
 
