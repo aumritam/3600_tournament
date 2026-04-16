@@ -1,0 +1,1 @@
+{"pos": [], "a_points": [], "b_points": [], "a_turns_left": [], "b_turns_left": [], "a_time_left": [], "b_time_left": [], "rat_caught": [], "left_behind": [], "errlog_a": "Timeout", "errlog_b": "commentary failed", "start_time": 360, "start_moves": 80, "turn_count": 0, "result": 1, "reason": "CODE_CRASH", "trapdoors": [[2, 0], [2, 0]], "spawn_a": [3, 2], "spawn_b": [4, 2]}

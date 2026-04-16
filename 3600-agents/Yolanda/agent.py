@@ -118,20 +118,19 @@ class PlayerAgent:
             score = self._score_move(board_state, move, my_loc, opp_loc, turns_left, my_pts, opp_pts)
             scored.append((score, move))
 
+        """
         best_loc, _ = self.rat_belief.best_search_target()
         search_score = self._score_search(board_state, best_loc, my_loc, opp_loc, turns_left, my_pts, opp_pts)
         scored.append((search_score, Move.search(best_loc)))
+        """
 
         scored.sort(key=lambda x: x[0], reverse=True)
         print(f"Base scored: {[(f'{v:.2f}', str(m)) for v, m in scored]}", flush=True)
 
         tree_results = iterative_deepening(board_state, self.rat_belief, MAX_DEPTH, time_left, scored)
-        
-        # Early game boost — multiply prime tree scores by 3
-        if turns_left >= 37 and tree_results:
-            tree_results = [(score * 3.0 if move.move_type == MoveType.PRIME else score, move) 
-                    for score, move in tree_results]
-            tree_results.sort(key=lambda x: x[0], reverse=True)
+        print(f"Tree results: {[(f'{v:.2f}', str(m)) for v, m in tree_results]}", flush=True)
+
+        time.sleep(2)
 
         if tree_results:
             return tree_results
@@ -160,7 +159,7 @@ class PlayerAgent:
         carpet_value = float(CARPET_POINTS_TABLE.get(potential_length, 0))
         trail_bonus = trail * 3.0
         score = (carpet_value + float(runway_pts)) * 0.8 + trail_bonus
-        print(f"PRIME {move.direction.name}: trail={trail} runway={runway} potential={potential_length} carpet_val={carpet_value:.0f} trail_bonus={trail_bonus:.1f} score={score:.2f}", flush=True)
+        #print(f"PRIME {move.direction.name}: trail={trail} runway={runway} potential={potential_length} carpet_val={carpet_value:.0f} trail_bonus={trail_bonus:.1f} score={score:.2f}", flush=True)
         return score
     
     #Def might need to tweek later
@@ -201,7 +200,7 @@ class PlayerAgent:
             return -1.0
         
         # Base penalty for plain move
-        return -0.5
+        return -1.0 #increased penalty for plain moves to encourage more proactive behavior
     
     def _score_search(self, board_state, best_loc, my_loc, opp_loc, turns_left, my_pts, opp_pts):
         best_prob = self.rat_belief.belief_at(best_loc)

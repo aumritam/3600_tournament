@@ -97,10 +97,9 @@ def _end_approach_threat(board, loc, best_direction, best_end):
     roll_pos = _step(best_end, best_direction)
     dist = abs(opp_loc[0] - roll_pos[0]) + abs(opp_loc[1] - roll_pos[1])
 
-    if dist == 0:    return 0.1   # opponent already at roll position
-    elif dist == 1:  return 0.5   # one step away, real threat
-    elif dist == 2:  return 0.8   # two steps, mild concern
-    else:            return 1.0   # far away, no discount
+    if dist == 0:   return 0.1   # opponent already at roll position
+    elif dist == 1: return 0.5   # one step away, real immediate threat
+    else:           return 1.0   # tree handles it
 
 
 def _perpendicular_threat(board, loc, best_direction, best_length):
@@ -123,10 +122,9 @@ def _perpendicular_threat(board, loc, best_direction, best_length):
                 chain_cur = _step(chain_cur, best_direction)
                 if chain_cur == cur:
                     dist = length
-                    if dist == 0:    return 0.1
-                    elif dist == 1:  return 0.5
-                    elif dist == 2:  return 0.8
-                    else:            return 1.0
+                    if dist == 0:   return 0.1   # opponent already at roll position, immediate threat
+                    elif dist == 1: return 0.5   # one step away, real immediate threat
+                    else:           return 1.0   # let the tree handle it
             length += 1
 
     return 1.0
@@ -179,10 +177,10 @@ def heuristic(board, rat_belief=None) -> float:
     opp_loc = board.opponent_worker.get_location()
 
     score = float(my_pts - opp_pts)
+    print(f"score dif {score}")
 
     # Our best rollable chain value, discounted by opponent threat
     best_length, best_dir, best_end = _best_rollable_chain(board, my_loc)
-    raw_value = _raw_carpet_value(best_length)
 
     if best_length > 0:
         raw_value = _raw_carpet_value(best_length)
@@ -190,39 +188,43 @@ def heuristic(board, rat_belief=None) -> float:
             discount = _threat_discount(board, my_loc, best_dir, best_end, best_length)
             score += raw_value * discount
 
-            if best_length >= 2 and discount >= 0.8:
-                extension = runway_prime_points(board, best_dir, loc=best_end)
-                score += extension * 0.3
+    # Runway extending our committed chain
+    print(f"best direction {best_dir}")
+    if best_dir is not None and best_end is not None:
+        extension = runway_prime_points(board, OPPOSITE[best_dir], loc=best_end)
+        score += extension * 0.5
 
-    # Best runway available from our position
-    best_runway = 0
-    best_runway_dir = None
-    for d in ALL_DIRS:
-        runway = runway_prime_points(board, d)
-        if runway > best_runway:
-            best_runway = runway
-            best_runway_dir = d
-
-    if best_runway_dir == best_dir:
-        score += best_runway * 0.6  # best runway continues our chain
-    else:
-        score += best_runway * 0.4  # best runway is in a different direction
+    # Best open runway in any direction (positional openness)
+    best_runway = max(runway_prime_points(board, d) for d in ALL_DIRS)
+    #score += best_runway * 0.2
+    
 
     # Corridor openness — how much open space in our building direction
     if best_dir is not None:
         openness = _corridor_openness(board, my_loc, best_dir)
-        score += openness * 6.0
+        #score += openness * .8
     else:
         best_openness = 0.0
         for d in ALL_DIRS:
             o = _corridor_openness(board, my_loc, d)
             best_openness = max(best_openness, o)
-        score += best_openness * 6.0
+        #score += best_openness * 1.5
 
     # Subtract opponent's best rollable chain
     opp_length, _, _ = _best_rollable_chain(board, opp_loc)
     opp_raw = _raw_carpet_value(opp_length)
-    score -= opp_raw
+    #score -= opp_raw * 0.5
+
+    """
+    for d in ALL_DIRS:
+        print(f"corridor {d.name}: {_corridor_openness(board, my_loc, d):.2f}", flush=True)
+    """
+
+    # Subtract opponent's best rollable chain — only meaningful chains
+    opp_length, opp_dir, opp_end = _best_rollable_chain(board, opp_loc)
+    if opp_length >= 3:
+        opp_raw = _raw_carpet_value(opp_length)
+        score -= opp_raw * 0.5
 
     return score
 
