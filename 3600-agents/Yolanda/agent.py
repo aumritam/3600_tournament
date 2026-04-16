@@ -18,6 +18,8 @@ from typing import Optional, Tuple
 
 import numpy as np
 
+import time
+
 from game import board
 from game.enums import BOARD_SIZE, MoveType, Direction, Cell, CARPET_POINTS_TABLE
 from game.move import Move
@@ -28,10 +30,9 @@ from .search import (
     trail_length_behind,
     runway_carpet_length,
     runway_prime_points,
-    _step
+    _step,
+    iterative_deepening
 )
-
-from .heuristic import heuristic_debug
 
 TIME_RESERVE = 8.0
 MAX_DEPTH = 3
@@ -49,8 +50,14 @@ class PlayerAgent:
         self.target_line = None  
         self.last_pos = None
 
+    def commentate(self) -> str:
+        best_loc, _ = self.rat_belief.best_search_target()
+        best_prob = self.rat_belief.belief_at(best_loc)
+        return f"Turn {self.turns_played} | Best rat: {best_loc} @ {best_prob:.2%}"
+
     def play(self, board_state: board.Board, sensor_data: Tuple, time_left: Callable) -> Move:
         self.turns_played += 1
+        time.sleep(2)
         noise, est_distance = sensor_data
 
         my_loc = board_state.player_worker.get_location()
@@ -72,11 +79,11 @@ class PlayerAgent:
             self.rat_belief.note_my_miss(my_last_loc)
 
         #Currently Ranking All Possible Moves And Picking The Top 1
-        ranked = self._rank_moves(board_state, my_loc, opp_loc, turns_left)
-        print(ranked)
+        ranked = self._rank_moves(board_state, my_loc, opp_loc, turns_left, time_left)
+        #print(ranked)
 
-        print(f"\n--- Turn {self.turns_played} Heuristic ---", flush=True)
-        heuristic_debug(board_state, self.rat_belief)
+        #print(f"\n--- Turn {self.turns_played} Heuristic ---", flush=True)
+        #heuristic_debug(board_state, self.rat_belief)
 
         if ranked:
             self.last_pos = my_loc
@@ -85,7 +92,7 @@ class PlayerAgent:
         valid = board_state.get_valid_moves(enemy=False, exclude_search=True)
         return valid[0] if valid else Move.search((0, 0))
     
-    def _rank_moves(self, board_state, my_loc, opp_loc, turns_left):
+    def _rank_moves(self, board_state, my_loc, opp_loc, turns_left, time_left):
         # TODO: Once all moves are scored on standardized EV scale,
         # run tree search on top N candidates to re-rank based on
         # lookahead. Tree search will handle multi-move sequences
@@ -116,6 +123,18 @@ class PlayerAgent:
         scored.append((search_score, Move.search(best_loc)))
 
         scored.sort(key=lambda x: x[0], reverse=True)
+        print(f"Base scored: {[(f'{v:.2f}', str(m)) for v, m in scored]}", flush=True)
+
+        tree_results = iterative_deepening(board_state, self.rat_belief, MAX_DEPTH, time_left, scored)
+        
+        # Early game boost — multiply prime tree scores by 3
+        if turns_left >= 37 and tree_results:
+            tree_results = [(score * 3.0 if move.move_type == MoveType.PRIME else score, move) 
+                    for score, move in tree_results]
+            tree_results.sort(key=lambda x: x[0], reverse=True)
+
+        if tree_results:
+            return tree_results
         return scored
 
 
@@ -141,7 +160,7 @@ class PlayerAgent:
         carpet_value = float(CARPET_POINTS_TABLE.get(potential_length, 0))
         trail_bonus = trail * 3.0
         score = (carpet_value + float(runway_pts)) * 0.8 + trail_bonus
-        
+        print(f"PRIME {move.direction.name}: trail={trail} runway={runway} potential={potential_length} carpet_val={carpet_value:.0f} trail_bonus={trail_bonus:.1f} score={score:.2f}", flush=True)
         return score
     
     #Def might need to tweek later

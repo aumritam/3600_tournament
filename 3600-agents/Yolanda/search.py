@@ -12,6 +12,8 @@ from game.board import Board
 from game.enums import MoveType, Direction, Cell, BOARD_SIZE, CARPET_POINTS_TABLE
 from game.move import Move
 
+from .heuristic import heuristic
+
 TIME_RESERVE = 8.0
 INF = 1e9
 
@@ -24,13 +26,13 @@ OPPOSITE = {
 
 def runway_carpet_length(b: Board, direction: Direction, loc=None) -> int:
     opp_loc = b.opponent_worker.get_location()
-    cur = b.player_worker.get_location()
+    cur = loc if loc is not None else b.player_worker.get_location()
     length = 0
     while length < 7:
         cur = _step(cur, direction)
         if not _in_bounds(cur):
             break
-        if b.is_cell_blocked(cur):
+        if b._blocked_mask & (1 << (cur[1] * BOARD_SIZE + cur[0])):
             break
         if b.get_cell(cur) == Cell.CARPET:
             break
@@ -41,14 +43,14 @@ def runway_carpet_length(b: Board, direction: Direction, loc=None) -> int:
 
 def runway_prime_points(b: Board, direction: Direction, loc=None) -> int:
     opp_loc = b.opponent_worker.get_location()
-    cur = b.player_worker.get_location()
+    cur = loc if loc is not None else b.player_worker.get_location()
     points = 0
     steps = 0
     while steps < 7:
         cur = _step(cur, direction)
         if not _in_bounds(cur):
             break
-        if b.is_cell_blocked(cur):
+        if b._blocked_mask & (1 << (cur[1] * BOARD_SIZE + cur[0])):
             break
         if b.get_cell(cur) == Cell.CARPET:
             break
@@ -60,7 +62,7 @@ def runway_prime_points(b: Board, direction: Direction, loc=None) -> int:
     return points
 
 def trail_length_behind(b: Board, direction: Direction, loc=None) -> int:
-    cur = b.player_worker.get_location()
+    cur = loc if loc is not None else b.player_worker.get_location()
     opp_dir = OPPOSITE[direction]
     length = 0
     while length < 7:
@@ -85,6 +87,133 @@ def _step(loc, direction: Direction):
 def _in_bounds(loc) -> bool:
     return 0 <= loc[0] < BOARD_SIZE and 0 <= loc[1] < BOARD_SIZE
 
+def expectiminimax(
+    b: Board,
+    rat_belief,
+    depth: int,
+    alpha: float,
+    beta: float,
+    is_maximizing: bool,
+    time_left_fn,
+) -> float:
+    
+    if depth == 0 or b.is_game_over():
+        return heuristic(b, rat_belief)
+    if time_left_fn() < TIME_RESERVE:
+        return heuristic(b, rat_belief)
+
+    next_belief = rat_belief.copy()
+    next_belief.predict()
+
+    moves = b.get_valid_moves(enemy=False, exclude_search=True)
+    moves = moves[:8]  # cap branching factor
+
+    if is_maximizing:
+        best = -INF
+        for m in moves:
+            child = b.forecast_move(m, check_ok=False)
+            if child is None:
+                continue
+            child.reverse_perspective()
+            val = expectiminimax(child, next_belief, depth-1, alpha, beta, False, time_left_fn)
+            best = max(best, val)
+            alpha = max(alpha, val)
+            if beta <= alpha:
+                break
+        return best
+    else:
+        worst = INF
+        for m in moves:
+            child = b.forecast_move(m, check_ok=False)
+            if child is None:
+                continue
+            child.reverse_perspective()
+            val = expectiminimax(child, next_belief, depth-1, alpha, beta, True, time_left_fn)
+            worst = min(worst, val)
+            beta = min(beta, val)
+            if beta <= alpha:
+                break
+        return worst
+    
+def iterative_deepening(
+b: Board,
+rat_belief,
+max_depth: int,
+time_left_fn,
+ranked_moves: list,
+) -> list:
+    if not ranked_moves:
+        return ranked_moves
+    
+    # ── Tier 1 — 1 best from each category, always evaluated ──────────────
+    best_carpet = next((m for _, m in ranked_moves if m.move_type == MoveType.CARPET), None)
+    best_prime  = next((m for _, m in ranked_moves if m.move_type == MoveType.PRIME), None)
+    best_plain  = next((m for _, m in ranked_moves if m.move_type == MoveType.PLAIN), None)
+    best_search = next((m for _, m in ranked_moves if m.move_type == MoveType.SEARCH), None)
+
+    tier1 = [m for m in [best_carpet, best_prime, best_plain, best_search] if m is not None]
+    tier1_ids = set(id(m) for m in tier1)
+
+    # ── Tier 2 — top 6 from ranked list, deduplicated against tier 1 ──────
+    tier2 = [m for _, m in ranked_moves if id(m) not in tier1_ids][:6]
+    tier2_ids = set(id(m) for m in tier2)
+
+    # ── Tier 3 — everything else, depth 1 quick look ──────────────────────
+    full_ids = tier1_ids | tier2_ids
+    tier3 = [m for _, m in ranked_moves if id(m) not in full_ids]
+
+    turns_left = b.player_worker.turns_left
+    time_available = time_left_fn() - TIME_RESERVE
+    time_per_turn = time_available / max(turns_left, 1)
+
+    if time_per_turn > 4.0:
+        depth = max_depth
+    elif time_per_turn > 1.5:
+        depth = 2
+    else:
+        depth = 1
+
+    #Tier 3
+    promoted = []
+    for m in tier3:
+        if time_left_fn() < TIME_RESERVE + 1.0:
+            break
+        child = b.forecast_move(m, check_ok=True)
+        if child is None:
+            continue
+        child.reverse_perspective()
+        val = expectiminimax(child, rat_belief, 0, -INF, INF, False, time_left_fn)
+        promoted.append((val, m))
+
+    # ── Evaluate tier 1 + tier 2 at full depth ────────────────────────────
+    full_results = []
+    for m in tier1 + tier2:
+        if time_left_fn() < TIME_RESERVE:
+            break
+        child = b.forecast_move(m, check_ok=True)
+        if child is None:
+            continue
+        child.reverse_perspective()
+        val = expectiminimax(child, rat_belief, depth - 1, -INF, INF, False, time_left_fn)
+        full_results.append((val, m))
+
+     # ── Promote tier 3 moves that beat tier 1/2 minimum ───────────────────
+    if full_results:
+        tier_min = min(v for v, _ in full_results)
+        for val, m in promoted:
+            if val > tier_min:
+                if time_left_fn() < TIME_RESERVE:
+                    break
+                child = b.forecast_move(m, check_ok=True)
+                if child is None:
+                    continue
+                child.reverse_perspective()
+                full_val = expectiminimax(child, rat_belief, depth - 1, -INF, INF, False, time_left_fn)
+                full_results.append((full_val, m))
+                
+    print(f"Tree results: {[(f'{v:.2f}', str(m)) for v, m in full_results]}", flush=True)
+    full_results.sort(key=lambda x: x[0], reverse=True)
+    return full_results
 
 #--------------------------------------------------------------------------------
 """
